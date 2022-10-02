@@ -1,5 +1,5 @@
 # Cache-CheckeR
-Script that has finds urls that use caching methods. For future cache poisoning matters
+Script that scans urls for their use of caching methods. For future cache poisoning matters
 
 ## Usage
 ```bash
