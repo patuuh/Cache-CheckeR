@@ -40,7 +40,7 @@ if len(sys.argv) <= 1:
     exit(0)
 
 default_headers = {
-    'BugBounty': 'BUG_BOUNTY_USER',
+    'BugBounty': 'KeiZo',
     'Accept': '*/*'
 }
 
@@ -64,24 +64,6 @@ parser.add_argument("-bb", "--bug-bounty",
                     dest="bb_list",
                     help="Use bug bounty list for URLs to scan.",
                     action='store_true')
-parser.add_argument("--all",
-                    dest="all",
-                    help="Enable all tests",
-                    action='store_true')
-parser.add_argument("--verbose","-v",
-                    dest="verbose",
-                    help="Verbose print",
-                    action='store_true')
-parser.add_argument("-cu",
-                    dest="custom_user",
-                    help="Custom User-Agent append (For example if bug bounty program wants spesific user-agent to be present)",
-                    action='store')
-parser.add_argument("--rate",
-                    dest="rate",
-                    help="Rate-limit. Use slower rate. Default 250 ms if this is present",
-                    const=0.25, 
-                    type=int,
-                    nargs='?')
 
 args = parser.parse_args()
 
