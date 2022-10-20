@@ -4,6 +4,9 @@
 # Author:
 # Patuuh
 # 
+#
+# TODO: Check that additional host is in scope
+#
 # ******************************************************************
 
 import argparse
@@ -19,12 +22,12 @@ import random
 import time
 from datetime import datetime
 from termcolor import cprint
+from bs4 import BeautifulSoup
+import configparser
 
 starttime= time.time()
-
-x = datetime.now()
-time_now = x.strftime("%d%b_%H%M")
-filepath = "reports/%s" % (time_now)
+config = configparser.ConfigParser()
+config.read("config.conf")
 
 # Disable SSL warnings
 try:
@@ -50,6 +53,7 @@ hit_cache_list = ["'X-Check-Cacheable': 'YES'", "'CF-Cache-Status': 'HIT'", "'CF
 words = ["HIT", "MISS", "DYNAMIC", "STALE", "cache-status: EXPIRED", "BYPASS"]
 any_cache_word_list = ["cache", "Cache"]
 timeout = 5
+cacheable_found = False
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-u", "--url",
@@ -69,19 +73,15 @@ args = parser.parse_args()
 
 
 
-def scan_url(url):
+def scan_url(url, recursive_flag):
     #useragent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:95.0)"
     resultsPath = filepath + "/results.txt"
-    url_list_path = filepath + "/found_urls.txt"
+    #url_list_path = filepath + "/found_urls.txt"
+    url_list_path = "found_urls.txt"
 
     writer = open(resultsPath, "a")
     url_writer = open(url_list_path, "a")
     
-    
-
-    if args.verbose:
-        verbosepath = filepath + "/verbose_Results.txt"
-        verbosewriter = open(verbosepath, "a")
 
     
     fuzzing_headers = {}
@@ -109,20 +109,104 @@ def scan_url(url):
         cprint(f"[•] Saving to file...", "red")
         writer.write(fuzz_url + "\n" + str(x.headers) + "\n\n")
         url_writer.write(fuzz_url + "\n")
+        global cacheable_found
+        cacheable_found = True
     else:
         cprint(f"[•] No wanted caching headers found", "white")
         cprint(f"[•] Continuing to next host...", "white")
-        return
-                    
+        
+    if not recursive_flag:
+        try:
+            soup = BeautifulSoup(str(x.content), "html.parser")
+            link = soup.find('link')
+            additional_url = link.get('href')
+            if url not in additional_url: # If another host found than the original host, try to find next link
+                link = soup.findNext('link')
+                additional_url = link.get('href')
+            if url not in additional_url: # If another host found again than the original host, return
+                return
+            cprint(f"[•] Additional url found...", "white")
+            if ".." in additional_url:
+                additional_url = additional_url.replace("..", "")
+            if "https://" in additional_url:
+                new_url = additional_url
+            else:
+                new_url = url + additional_url
+            cprint(f"[•] Starting scan to: " + new_url, "white")
+        except Exception as e:
+            cprint(f"EXCEPTION: {e}")
+            return
+        scan_url(new_url, True)
+
+def send_msg(msg):
+
+    TOKEN = config.get("Telegram", "Token")[0]
+    chat_id = config.get("Telegram", "chat_id")[0]
+
+    message = msg
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={chat_id}&text={message}"
+    requests.get(url).json() # this sends the message
+
+def url_diff():
+    domains = open("bounty-targets-data/data/domains.txt", "r")
+    domains_old = open("bounty-targets-data/data/domains_old.txt", "r")
+    diff_urls = open("diff_urls.txt", "w+") # URLs that are newly added
+
+    old_lines = domains_old.read().splitlines()
+    new_lines = domains.read().splitlines()
+    new_flag = False
+    url_list_message = "New urls found: \n"
+    for new_line in new_lines:
+        if new_line in old_lines:
+            continue
+        else:
+            print("found new url: " + new_line)
+            new_flag = True
+            diff_urls.write(new_line + "\n")
+            url_list_message = url_list_message + str(new_line) + "\n"
+    if new_flag:
+        send_msg(url_list_message)
+    url_file = "diff_urls.txt" 
+
+    return url_file, new_flag     
 
 def main():
+    url_list_path = "found_urls.txt"
+    url_writer = open(url_list_path, "w") # Empty the file
+    url_writer.close()
     if args.bb_list:
-        if not os.path.isdir('bounty-targets-data'):
-            # First time run
-            os.system('git clone https://github.com/arkadiyt/bounty-targets-data.git')
-        else:
-            # Not first time run
-            os.system('cd bounty-targets-data && git pull')  
+        while True:    
+            if not os.path.isdir('bounty-targets-data'):
+                # First time run
+                new_flag = True
+                os.system('git clone https://github.com/arkadiyt/bounty-targets-data.git')
+                url_file = "bounty-targets-data/data/domains.txt"
+                break
+            else:
+                # Not first time run
+                os.system('cd bounty-targets-data && cp data/domains.txt data/domains_old.txt && git pull')
+                #os.system('cd bounty-targets-data && cp data/domains.txt data/domains_old.txt')   
+                url_file,new_flag = url_diff() 
+
+            if new_flag == False:
+                print("No new hosts found!")
+                print("Scanning again in 30 minutes!")
+                time_now = str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')[:-3])
+                print("Time now: " + time_now)
+                time.sleep(1800)
+                continue
+            else:
+                break
+    
+    x = datetime.now()
+    time_now = x.strftime("%d%b_%H%M")
+    global filepath 
+    filepath = "reports/%s" % (time_now)
+    
+    if "Win" in platform.system():
+        os.system("mkdir %s" % (os.path.normpath(filepath)))
+    else:
+        os.system("mkdir -p %s" % (filepath))
 
     urls = []
     if args.url:
@@ -133,8 +217,9 @@ def main():
         if args.usedlist:
             url_list = args.usedlist
         else:    
-            url_list = "bounty-targets-data/data/domains.txt"
+            url_list = url_file
         with open(url_list, "r") as f:
+            #for i in reversed(f.readlines()):
             for i in f.readlines():
                 i = i.strip()
                 if i == "" or i.startswith("#"):
@@ -146,7 +231,13 @@ def main():
     try:
         for url in urls:
             cprint(f"[•] URL: {url}", "magenta")
-            scan_url(url)
+            scan_url(url, False)
+        if cacheable_found:
+            diff_urls = open("found_urls.txt", "r") # URLs that are newly added
+            new_lines = diff_urls.read()
+            message = "New hosts with caching headers found:\n" + new_lines
+            send_msg(message)
+
     except KeyboardInterrupt:
         print("\nKeyboard Interrupt Detected.")
         print("Exiting...")
@@ -155,8 +246,8 @@ def main():
 
 
 if __name__ == "__main__":
-    if "Win" in platform.system():
-        os.system("mkdir %s" % (os.path.normpath(filepath)))
-    else:
-        os.system("mkdir -p %s" % (filepath))
+
+    if sys.version_info[0] < 3:
+        raise Exception("You need to use Python3")
+        
     main()
