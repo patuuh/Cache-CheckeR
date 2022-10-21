@@ -140,8 +140,8 @@ def scan_url(url, recursive_flag):
 
 def send_msg(msg):
 
-    TOKEN = config.get("Telegram", "Token")[0]
-    chat_id = config.get("Telegram", "chat_id")[0]
+    TOKEN = config.get("Telegram", "Token")
+    chat_id = config.get("Telegram", "chat_id")
 
     message = msg
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage?chat_id={chat_id}&text={message}"
